@@ -2,17 +2,15 @@
 
 The story began with buying a nice Android TV. As some reverse engineering will be involved, I
 wouldn't like to publish the brand, let's just say that it matches the regex `/Ni.*ai/`.
-
 It's quite a good TV by the way, well worth the price. Its built-in speakers are crap, but
 you'd buy a decent sound bar to a TV anyway.
 
 As every Android based TV, it requires some time (10-20 seconds) to boot up.
-Have you noticed that it's roughly the same time the ancient black-and-white CRT TVs required
-to heat up the cathode? Fascinating, how much the science managed to speed thing up, isn't it...
+(Have you noticed that it's roughly the same time the ancient black-and-white CRT TVs required
+to heat up the cathode? Fascinating, how much the science managed to speed thing up, isn't it...)
 
 During this boot-up it plays some animation, neither an hourglass nor a spinner, but some in-and-out
 culminating blobs with the words 'Wisdom' and 'Share' around them.
-
 I bet they sound more inspirational and have more spiritual depth in their original language, than
 in English, but after a while I wanted something ... fancier.
 
@@ -28,7 +26,7 @@ the next stage, and it may display a static logo, read also directly from a part
 
 2. Linux: It starts with `/init`, which reads `/*.rc` and initialises the system
 by starting all the services specified in those files. This is where the boot animation is started,
-just before starting the Android system.
+in parallel with the Android system.
 
 3. Android: All the UI and services, and when the Launcher is ready, it notifies the bootloader
 process that the startup is complete and it may now exit.
@@ -44,6 +42,8 @@ plays an animation from a .zip file, specified by the these system properties:
 The .zip file contains a `desc.txt` which describes the screen resolution, frame rate and
 the parts of the animation. The parts are folders which contain the frames as still images,
 I think we might call it MotionJPEG, only the images needn't be JPEGs, they may be PNGs as well.
+
+[Here](https://www.addictivetips.com/mobile/how-to-change-customize-create-android-boot-animation-guide/)'s a good description about it.
 
 In our case the 1st path doesn't exist, but the 2nd one does, so that `/atv/bootvideo/bootanimation.zip` has to be replaced.
 
@@ -72,9 +72,9 @@ do
 done
 ```
 
-Whoa! **If** this script is invoked, it checks for `custom_upgrade/bootanimation.zip` on all attached USB sticks, and uses the first one found to install as aboot animation.
+Whoa! **When** this script is invoked, it checks for `custom_upgrade/bootanimation.zip` on all attached USB sticks, and uses the first one found to install as boot animation.
 
-**NOTE** This is the 1st security weakness, as it's basically a backdoor.
+**NOTE** This is a security weakness, as it's basically a backdoor.
 
 At least if there were some authentication, like 'if the files are digitally signed by someone whose certificate is signed by an authorised CA', but here the door is open for anyone who knows the filename to place on the USB stick.
 
@@ -97,6 +97,8 @@ service burn-bootanim /system/bin/burn-bootanim.sh
 ```
 
 So if the init service 'burn-bootanim' is started (eg. `setprop svc.start burn-bootanim`), it'll invoke the script as root (who does have the right to overwrite that .zip).
+
+**NOTE** Obscurity is not security, but this is a good example why those `*.rc` files are usually not world-readable.
 
 Starting services also isn't allowed for mere users, so let's follow the chain, where is this service started?
 
@@ -134,15 +136,17 @@ Let's decompile the `classes.dex` of that `cvte-tv-service.apk` package.
 
 ### The updater Android service source
 
+... and continue searching within those sources.
+
 `./com/cvte/tv/api/CustomUpgrade.java:45:    private static final String PROP_BOOTANIM = "sys.cvt.burn-bootanim";
 `
 
-And here we are! That `CustomUpgrade.java` is quite straightforward, here is what it actually does:
+And here we are! That [`CustomUpgrade.java`](CustomUpgrade.java) is quite straightforward, here is what it actually does:
 
-1. It catches the `MEDIA_MOUNTED` intent (sent when an USB stick is mounted)
+1. It catches the `MEDIA_MOUNTED` intent (sent when a USB stick is mounted)
 2. Checks if there is a `custom_upgrade/custom_upgrade_cfg.json` on the USB stick
 
-Its format is:
+Its format is like:
 ```
 {
     "burn-bootanim":    0,
@@ -161,7 +165,7 @@ Its format is:
 }
 ```
 
-3. If one of these fields is present and 1, and a corresponding data file is also present if it makes sense for that command
+3. If some of these fields are present and 1, and the corresponding data files are also present (if it makes sense for those commands)
 4. Then the corresponding property will be set to 1
 
 This is will trigger the service, that execute the script, and that will actually do the job.
@@ -175,12 +179,12 @@ Imagine a malicious vandal with a malignantly prepared USB stick going around a 
 
 ## How it turned out for me
 
-Having been in IT for 25 years has made me a bit paranoid, so before any invasive step I backed up whatever I had read access to. Including the readable parts of `/system` and the original `bootanimation.zip` as well.
+Having been in IT for 25 years has made me a bit paranoid (but apparently still not paranoid enough), so before any invasive step I backed up whatever I had read access to. Including the readable parts of `/system` and the original `bootanimation.zip` as well.
 
 
-### First test
+### First attempt
 
-Then I grabbed an USB stick, created a folder `custom_upgrade`, snatched a `bootanimation.zip` from the net, created that `.json` file, took a deep breath, and plugged the USB stick into the TV.
+Then I grabbed a USB stick, created a folder `custom_upgrade`, snatched a `bootanimation.zip` from the net, created that `.json` file, took a deep breath, and plugged the USB stick into the TV.
 
 The toasts appeared, hooray! Reboot, and indeed the new boot animation was played.
 
@@ -189,7 +193,7 @@ A portrait animation on a landscape TV, but hey, the principle worked.
 
 ### Second attempt
 
-Extracted the animation, rotated the images (`for` loops and `gm convert this.jpg -rotate 90 that.jpg` are the tools), modified the `desc.txt`, repacked the .zip, and updated to it.
+Extracted the animation, rotated the images (`for` loops and `gm convert this.jpg -rotate 90 that.jpg` are the tools), modified the `desc.txt`, repacked the .zip, updated the animation, rebooted the TV.
 
 Nothing at all.
 
@@ -220,14 +224,17 @@ Almost. It's 'only' a boot loop, but the effects are the same: you have a nice 1
 Searching the net for this case revealed that a lot of others have met this fate :(.
 
 Most of the comments started with "Boot your phone into recovery mode by pressing this-and-that keys while powering on..."
-Now, the TV does have physical 'Volume Up' and 'Down' keys, even one with 'Standby' on it (it actually powers down the set), none of the combination had
+Now, the TV does have physical 'Volume Up' and 'Down' keys, even one with 'Standby' on it (it actually powers down the set), but none of the combination had
 any effect on the boot process.
 
-There are 8 keys, so I tried all 256 combinations. A switchable power extender makes it a lot easier, you can trust my experience on this.
+There are 8 keys, so I tried all 256 combinations. A switchable power extender makes it a lot easier, you can trust my experience on this. Or even better, read on to know how to avoid it in the first place.
 
 If I just had a serial console, or an alternate boot flash socket... I've been working with embedded Android devices before, so I'm somewhat familiar with this part, so I grabbed a screwdriver... The warranty can't be more void anyway...
 
-Tough luch, evident sign of service connector, or probe pads on the PCB, or covered sockets, or anything. One big SoC the size of half my palm, power regulators, display drivers, etc.
+"A programmer wielding a screwdriver is a bad omen, and one with a soldering iron is a herald of hell breaking loose.", mwahaaa :D !
+
+Tough luch, no evident sign of service connector, or probe pads on the PCB, or covered sockets, or anything trivial.
+Just one huge SoC big as half of my palm (at least its flat heatsink is that size), power regulators, display drivers, IR receiver, connectors, etc.
 
 And my wife will be home in two hours, so I'll have some hard time explaining why have I bricked the TV - only for replacing the animation. And I also have a one-hour errand to run till then...
 
@@ -250,7 +257,7 @@ The keywords are 'unverified' and 'block the way of restoring'.
 I never thought that a freaking boot animation can block the system from booting up, but apparently it can.
 Therefore whatever .zip I want to give a try to, I want first test it in a non-reboot-persistent way.
 
-Could've known not to trust any unfounded assumptions, but better late than never, lesson learned.
+(Could've known not to trust any unfounded assumptions, but better late than never, lesson learned.)
 
 But to do proceed I will definitely need unrestricted root access!
 

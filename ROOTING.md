@@ -1,4 +1,10 @@
-Getting unrestricted root access on the TV.
+# Getting unrestricted root access on the TV.
+
+We'll need to make changes that we're not (yet...) authorised to, so this usually means utilising some
+privilege escalation exploit.
+
+Take a look at [Metasploit](https://www.metasploit.com/) if you're interested, here I found a more direct
+vulnerability.
 
 
 ## The delivery method
@@ -11,7 +17,8 @@ brw-rw-rw- root     root     179,   0 2019-04-30 20:40 mmcblk0
 Yes, the flash as a whole device is world-writeable. That's how we're going to
 modify whatever we want.
 
-As the first step, let's install some terminal emulator, attach some nice big (>= 8GB) USB stick and dump the flash, so we won't have to do all the work on the device.
+As the first step, let's attach some nice big (>= 8GB) USB stick and dump the flash, so we won't have to do all the work on the device.
+And having a backup is such a cozy feeling, even if we couldn't restore it if we'd stick in a boot loop (again)...
 
 `dd if=/dev/mmcblk0 of=/mnt/sda1/mmcblk0.img bs=16777216`
 
@@ -56,64 +63,8 @@ The next step is to choose what to overwrite and with what content.
 
 ## The point of attack
 
-As an update mechanism, there are scripts at `/system/bin/burn-*.sh` and `export-*.sh` that
-are started as root when certain files are present on an attached USB storage.
-
-For example (in `/init.rc`):
-
-```
-service burn-logo /system/bin/burn-logo.sh
-    class burn-logo 
-    user root
-    group root
-    disabled
-    oneshot
-
-on property:sys.cvt.burn-logo=1
-    start burn-logo
-    setprop sys.cvt.burn-logo 0
-```
-
-So whenever the property `sys.cvt.burn-logo` is set to 1, this script
-will be invoked as root.
-
-We will overwrite this script using `dd` on the flash device, and then
-get it executed by setting that property.
-
-Unfortunately, normal users can't set system properties, so it's a bit more difficult than `setprop sys.cvt.whatever 1`.
-
-There is service or daemon that can catches the attachment of a new storage device and sets those properties if certain conditions are met: `package:/system/app/cvte-tv-service.apk=com.cvte.tv.api.impl`.
-
-Decompiling its `classes.dex` using `jadx`, the interesting file is
-`com/cvte/tv/api/CustomUpgrade.java`, I've also copied it here.
-
-It is triggered by the `MEDIA_MOUNTED` intent, and then it checks if there is a `custom_upgrade/custom_upgrade_cfg.json` on the attached USB storage.
-
-Its format is:
-```
-{
-    "burn-bootanim":    0,
-    "burn-ini":         0,
-    "burn-pq":          0,
-    "export-ini":       0,
-    "export-pq":        0,
-    "burn-key-xml":     0,
-    "burn-logo":        0,
-    "burn-panelparam":  0,
-    "panelPin15":       0,
-    "panelPin16":       0,
-    "panelPin22":       0,
-    "panelPinType":     0,
-    "export-log":       0
-}
-```
-
-If one of these fields is present and 1, and the corresponding data file is also present,
-(for example `logo.img` for burn-logo), then the corresponding property will be set to 1
-(`sys.cvt.burn-logo` for burn-logo), triggering the service and thus executing the script.
-
-We'll overwrite one of those scripts, and as (for me) the least important is the
-one that replaces the startup logo, I've chosen `burn-logo.sh`.
+Similar to that `burn-bootanim` there are several other update mechanisms, of which
+I found `burn-logo.sh` the least important, so I chose that one to replace.
 
 
 ## File systems and whatnot
@@ -130,16 +81,16 @@ partition is formatted with, in our case, `ext4`.
 
 **Don't do this, it's here just for the explanation!**
 
-If we are to modify a file, all this meta-information should also kept consistent with
+If we are to modify a file, all its meta-information should also kept consistent with
 it, so the absolutely correct way would be:
 
 1. Set up the loop device and mount the `p10` partition of `mmcblk0.img` on our desktop for read-write
 2. Do our modifications
 3. Umount it and detach the loop device
-4. `dd` back that image to the flash
+4. `dd` back that `mmcblk0.img` to the flash
 
 However, overwriting the whole flash under a living, mounted system is way too dangerous.
-If all goes well, it would do it, but if *anything* goes wrong, then *everything* is ruined.
+If all goes well, it would do it, but if *anything* goes wrong, then *everything* is wrecked.
 
 
 ### Naive approach 2: Modify the partition image
@@ -160,7 +111,7 @@ There are a lot of things that *could* have been modified, and **each un-verifie
 If I had to do heavy changes, I'd choose this, but not until there is any simpler way, and fortunately there is one.
 
 
-### Doing the least possible change: Modify one sector only
+### The smallest possible change: Modify one sector only
 
 The data unit of the storage itself (below the fs-layer) is the 512-byte sector, this is the smallest unit that
 can be accessed, so no matter how a filesystem stores the information, the data within one sector is still atomic:
@@ -217,7 +168,7 @@ want.
 
 I know it's uncomfortable to do the "Remove the stick, name it back to runme.inc,
 plug the stick back" rain dance, but believe me, it's still far more comfortable 
-than buying another tv because "I left the stick plugged, it appended something
+than buying another TV because "I left the stick plugged, it appended something
 twice and now it doesn't boot".
 
 OK, back to business.
@@ -231,17 +182,12 @@ with some leftover junk (up to byte 369), which can cause trouble.
 So, pad this script up to 512 bytes with spaces, in a line below that `done`.
 
 
-### This is the **Point of No Return**
+### The Point of No Return
 
 Up to now we've only read things from the device, now we'll actually modify
 one sector.
 
-First of all, it **voids the warranty**.
-
-Second, it'll make it impossible to replace the logo by this mechanism (at least
-until we restore that sector).
-
-And finally, if we overwrite a **wrong** sector, it can cause any kind of trouble.
+Only one that belongs to a non-essential file, but if we overwrite a **wrong** sector, it can cause any kind of trouble.
 
 So, if you choose to proceed, you're doing it at your own risk, **I don't take
 any responsibility whatsoever**.
@@ -266,35 +212,34 @@ and then you may see the cached old content.)
 
 ## Make the script triggered
 
-Create a `custom_upgrade` folder, place an appropriate `.json` in it that requests
-`"burn-logo": 1`, put a `logo.img` there also (here's the original, just in case),
+As usual, create a `custom_upgrade` folder, place an appropriate `.json` in it that requests
+`"burn-logo": 1`, put a `logo.img` there also (may be of 0 length, but must exist),
 and a `runme.inc` that will be executed by our hacked `burn-logo.sh`.
 
-Try not to do any wild things in that include, as if you make the system unbootable,
-then you've got a nice big flat brick...
-
-As a first step, starting `adbd` will suffice:
+As a first step, just make it start `adbd`:
 
 ```
 setprop service.adb.tcp.port 5555
 setprop ctl.start adbd
 ```
 
-Insert the USB stick, in a few seconds a toast shall appear about upgrading the logo,
+Insert the USB stick, (no reboot needed,) and in a few seconds a toast shall appear about upgrading the logo,
 and then about the upgrade having completed.
 
 Now you shall be able to connect via adb: `adb connect 192.168.70.64:5555`
+
+## `adbd` as a plain user
 
 This `adbd` is however running only as a `shell` user.
 
 It does so because it is compiled without the `ALLOW_ADBD_ROOT` define,
 so even with `ro.secure=0` and `ro.debuggable=1` it still reverts to a plain user.
 
-"Rage Against The Cage" won't work, because this version is patched to check the return
-value of `setuid()`, so no luck here.
+If you're thinking about the "Rage Against The Cage" exploit, it won't work, because this version
+of `adbd` is patched to check the return value of `setuid()`.
 
-We're going to do it the hard way: patching out this whole dropping-root thing
-from a copy of `adbd`, and get that running.
+So we're going to do it the hard way: patching out this whole dropping-root thing
+from a copy of `adbd`, and get that copy running.
 
 
 ## Modify `adbd` to keep the capabilities and uid/gid
@@ -306,13 +251,13 @@ whole android toolchain and rebuild the dependencies, and I've already have the
 `objdump` and a hex editor at hand :D.
 
 You know, there is the machine code and there are all those fancy languages
-for the sissies who can't cope with it. (Just kidding :D !)
+for the sissies who can't cope with machine code... (Just kidding :D !)
 
-First of all, make a backup of `/sbin/adbd`. ("In God we trust, of the rest we make backups." - sysadmin proverb)
+First of all, make a backup of `/sbin/adbd`. ("In God we trust, of the rest we make backups.")
 
 Disassemble it: `arm-none-eabi-objdump -d -M force-thumb,reg-names-std adbd.orig | less`
 
-I've identified and commented the relevant parts, see `adbd.orig.list`.
+I've identified and commented the relevant parts, see [`adbd.orig.list`](adbd.orig.list).
 
 Two block of code must be zapped:
 
@@ -381,6 +326,7 @@ Just zap it with `nop`-s:
 
 ### The complete changes
 
+```
 --- adbd.orig.hex	2019-04-30 20:41:35.356186000 +0400
 +++ adbd.hacked.hex	2019-04-30 20:41:44.481757000 +0400
 @@ -282,16 +282,16 @@
@@ -404,6 +350,7 @@ Just zap it with `nop`-s:
  0001260 48b1 2100 4478 f00e ed66 b138 48af 2100
  0001270 4478 f00e ed60 2800 f040 80d9 f00a f92e
  0001280 f04f 0901 4daa a90e 48aa 447d 4478 462a
+```
 
 
 ## Getting this root-adbd invoked
@@ -418,7 +365,7 @@ a sure recipe for trouble...
 
 So, we're going to over-bind-mount it :D.
 
-Our `runme.inc`:
+Our new `runme.inc`:
 
 ```
 ADBD_SRC=/mnt/sda1/custom_upgrade/adbd.hacked
@@ -433,7 +380,9 @@ setprop ctl.start adbd
 ```
 
 Reboot, attach USB stick, wait for the toasts, `adb connect ...`,
-and ... here we are, we have a root shell with all the caps :D.
+and ...
+
+here we are, we have a root shell with all the caps :D.
 
 
 ## Making it persistent and auto-started
@@ -449,24 +398,26 @@ the impact of an error is high.)
 But look what's there at the end of `/init.rc`:
 
 ```
-#info@ee-share.com++
 service preeshare /system/bin/preeshare.sh
     class main
     user root
     group root
     oneshot
-#info@ee-share.com--
 
-#likangning@iflytek.21060406.com++
 service xiri /system/bin/xiriservice
     class main
     user root
     group root
     oneshot
-#likangning#iflytek.20160406.com--
 ```
 
-Two commands that are not even exist on this `/system`, just waiting for us :).
+Two commands that don't even exist on this `/system`, just waiting for us :).
+
+This `xiriservice` will be our hacked adbd, and perhaps in the future
+we may use that `preeshare.sh` for initialising a SuperSU, if need be.
+
+**NOTE** And now you see the impact of leaving such loose ends.
+If they were cleaned up, it would've been much harder to add a new service.
 
 ```
 mount -o remount,rw /system
@@ -483,8 +434,8 @@ else, then add a persistent property for it: `setprop persist.adb.tcp.port 5555`
 
 ## Cleaning up
 
-As we no longer need it, we may even restore that `burn-logo.img`, if we want.
-(Just `dd` back your backup, as you did with the hacked script.)
+As we no longer need it, we may even restore that `burn-logo.sh`, if we want.
+(Do it on a file level, not by `dd` because it might have moved since.)
 
 I don't need that logo updater (can `dd` it manually if need be), so I left it
 as it is, just in case. Yet another known backdoor, who knows when will I need it...
