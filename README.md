@@ -262,8 +262,211 @@ Therefore whatever .zip I want to give a try to, I want first test it in a non-r
 But to do proceed I will definitely need unrestricted root access!
 
 
----
+## Getting root access
 
-Proceed to [rooting](ROOTING.md)
+Read about it [here](ROOTING.md)
+
+
+## Testing boot animations manually
+
+`/system/bin/bootanimation` can be started manually, and if done with root privileges, it'll
+just display the animation. Or crash. Or reboot, in which case it'll be invoked at startup
+on the same .zip file again...
+
+The simplest way to 'change' a file in a non-reboot-persistent way is to over-bind-mount it,
+so:
+
+```
+#!/system/bin/sh
+
+f="/atv/bootvideo/bootanimation.zip"
+umount $f
+
+dmesg -c > /dev/null
+
+mount -o bind $1 $f
+
+/system/bin/bootanimation &
+while sleep 0.2; do
+    ps | grep bootanim
+    #grep -e MemFree -e SwapFree -e Commit /proc/meminfo
+    dmesg -c
+done
+```
+
+Even if it crashes, that bind-mount is transient, so even if a hard power-on-off
+is needed, it'll boot with the stable original boot animation.
+
+First let's test the original one:
+
+### `bootanimation.orig.zip`
+
+* size: 3230326
+* frames: 65
+* frame format: PNG 940x398
+* frame size: 20..100 kbytes
+
+```
+root      3028  3026  34888  7136  ffffffff b6efb644 S /system/bin/bootanimation
+root      3028  3026  55376  4476  ffffffff b6efb644 S /system/bin/bootanimation
+root      3028  3026  77280  5876  ffffffff b6efb644 S /system/bin/bootanimation
+root      3028  3026  89616  6496  ffffffff b6efb644 S /system/bin/bootanimation
+root      3028  3026  97856  6620  ffffffff b6efb644 S /system/bin/bootanimation
+root      3028  3026  110240 5956  ffffffff b6efb644 S /system/bin/bootanimation
+root      3028  3026  122572 3956  ffffffff b6efb644 S /system/bin/bootanimation
+<6>lowmemorykiller: Killing 'd.play.games.ui' (2613), adj 1000,
+<6>   to free 20784kB on behalf of 'kswapd0' (442) because
+<6>   cache 32112kB is below limit 32384kB for oom_score_adj 1000
+<6>   Free memory is 17432kB above reserved
+<6>lowmemorykiller: Killing 'id.partnersetup' (2533), adj 1000,
+<6>   to free 16084kB on behalf of 'kswapd0' (442) because
+<6>   cache 31656kB is below limit 32384kB for oom_score_adj 1000
+<6>   Free memory is 17672kB above reserved
+<6>lowmemorykiller: Killing 'm.cvte.fac.menu' (2235), adj 1000,
+<6>   to free 15372kB on behalf of 'kswapd0' (442) because
+<6>   cache 31048kB is below limit 32384kB for oom_score_adj 1000
+<6>   Free memory is 20180kB above reserved
+<6>lowmemorykiller: Killing 'd.configupdater' (2468), adj 1000,
+<6>   to free 15132kB on behalf of 'kswapd0' (442) because
+<6>   cache 30668kB is below limit 32384kB for oom_score_adj 1000
+<6>   Free memory is 23236kB above reserved
+<6>lowmemorykiller: Killing 'cvte.tv.setting' (2565), adj 1000,
+<6>   to free 15068kB on behalf of 'kswapd0' (442) because
+<6>   cache 29984kB is below limit 32384kB for oom_score_adj 1000
+<6>   Free memory is 25404kB above reserved
+<6>lowmemorykiller: Killing 'timeinitializer' (2510), adj 1000,
+<6>   to free 14920kB on behalf of 'kswapd0' (442) because
+<6>   cache 29908kB is below limit 32384kB for oom_score_adj 1000
+<6>   Free memory is 27228kB above reserved
+root      3028  3026  153436 3756  ffffffff b6efb644 S /system/bin/bootanimation
+root      3028  3026  163712 4580  ffffffff b6efb644 S /system/bin/bootanimation
+root      3028  3026  174000 4376  ffffffff b6efb644 S /system/bin/bootanimation
+<6>lowmemorykiller: Killing 'android.youtube' (2578), adj 764,
+<6>   to free 22928kB on behalf of 'kswapd0' (442) because
+<6>   cache 25820kB is below limit 25904kB for oom_score_adj 529
+<6>   Free memory is 14508kB above reserved
+root      3028  3026  191056 2544  ffffffff b6efb644 S /system/bin/bootanimation
+root      3028  3026  191056 2004  ffffffff b6efb644 S /system/bin/bootanimation
+root      3028  3026  191056 1304  ffffffff b6efb644 S /system/bin/bootanimation
+root      3028  3026  191056 1320  ffffffff b6efb644 S /system/bin/bootanimation
+root      3028  3026  191056 1352  ffffffff b6efb644 S /system/bin/bootanimation
+root      3028  3026  191056 1360  ffffffff b6efb644 S /system/bin/bootanimation
+root      3028  3026  191056 1356  ffffffff b6efb644 S /system/bin/bootanimation
+root      3028  3026  191056 1360  ffffffff b6efb644 S /system/bin/bootanimation
+```
+
+`lowmemorykiller`, hmmm... it rings a bell:
+
+* [What it does](https://forum.xda-developers.com/showthread.php?t=622666)
+* [How to finetune](https://elinux.org/Android_Notes#OOM_Killer_information)
+
+On an up-and-running system it even makes sense (considering the restartable nature of
+suspended Activities), but during a startup every process is needed right there and
+right then.
+
+Besides, the original animation would use about 191000 kbytes...
+
+... which it doesn't have in an up-and-running system,
+
+... but during startup there **is** enough memory, otherwise it wouldn't boot normally.
+
+
+## The cause of the boot loop
+
+Now it's getting clearer: if the animation was *too big*, this ~f.cking~ naughty
+lowmemkiller has shot some innocent process in the head, and as it happened during startup,
+it proved fatal.
+
+And when I let it try again and again, once it made a lucky guess and killed either
+only some non-essentials or maybe `bootanimation` itself, and the boot process could continue.
+
+By the way, lowmemkiller has a bigger brother, the [OOM killer](https://www.win.tue.nl/~aeb/linux/lk/lk-9.html#ss9.6),
+which is another sad example of irresponsibly committed half-measure 'but it worked for me once'
+hacks, that just make everything unpredictable and unstable.
+
+On the other hand, an even sadder thing is that abomination does have a reason for existence,
+namely Android, which does allocate way more memory that it touches even once.
+
+```
+# cat /proc/meminfo
+MemTotal: 752608 kB
+MemFree: 252784 kB
+...
+SwapTotal: 102396 kB
+SwapFree: 89296 kB
+...
+CommitLimit: 478700 kB
+Committed_AS: 12570532 kB
+```
+
+In fact, it acquires about 12.6 **GB**s, of which it actually uses about 510 MBs.
+Yes, this ... junk ... is the OS you're running on your phone...
+
+But back to business, we've got two more steps to go.
+
+
+## Testing boot animations in real startup
+
+So the question is how much memory is *available* at startup?
+
+The answer is: I can't tell, because it depends on the heuristics of `lowmemkiller`.
+
+All I can do is to devise some way that on a reboot a given .zip is tried 
+**only once**, and the next reboot shall use the original .zip even if the previous
+attempt crashed the system.
+
+`/system/bin/bootanimation` needn't be a binary executable, it might as well be a script,
+so we may rename the original to `bootanimation.orig`, and put [this](bootanimation.hacked) in its place
+(take care to set the ownership and permissions to match):
+
+```
+#!/system/bin/sh
+
+f="/data/local/tmp/bootanimation.test.zip"
+if [ -r $f ]; then
+	mv $f $f.tried
+	mount -o bind $f.tried /atv/bootvideo/bootanimation.zip
+fi
+
+exec /system/bin/bootanimation.orig "$@"
+```
+
+If there is a file to test, it renames it (to prevent testing it on the next reboot),
+then over-mounts the boot animation .zip with it, and then passes the execution to the
+original `bootanimation` binary.
+
+
+### The results
+
+I've made some experiments, changing the following factors:
+
+* Number of frames
+* Resolution of frames
+* Format of frames (.png vs high-compression .jpg vs. high-quality .jpg)
+* Display size (in `descr.txt`)
+
+It turned out that
+
+* The display size in `descr.txt` doesn't matter, 960x540 frames need the same memory when scaled up to 1920x1080
+* The frame format (.png vs. .jpg) matters only a little: where 51 .jpgs just didn't cause lowmemkills, 51 .png frames did, but 49 .pngs were OK, too
+
+It seems that the sum of frame sizes is the main factor:
+
+*  14 x 1920 x 1080 = 29030400 ok
+*  15 x 1920 x 1080 = 31104000 some lowmemkills
+
+*  51 x  960 x  540 = 26438400 ok
+*  52 x  960 x  540 = 26956800 some lowmemkills
+
+*  99 x  640 x  360 = 22809600 ok
+* 101 x  640 x  360 = 23270400 some lowmemkills
+
+So, for the 1920x1080 display my best suggestion is to use less than 100 frames of 640x360 high-quality .jpgs:
+
+`ffmpeg -i ../whatever.mov -r <framerate> -s 640x360 -q 2 "part0/%03d.jpg"`
+
+The `<framerate>` controls how many of the original frames remain (or gets duplicated), use that
+to adjust the number of frames below 100. (The actual replay framerate is set in `desc.txt`.)
+
 
 [//]: # ( vim: set sw=4 ts=4 et: )

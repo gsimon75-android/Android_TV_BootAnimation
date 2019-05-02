@@ -365,7 +365,7 @@ a sure recipe for trouble...
 
 So, we're going to over-bind-mount it :D.
 
-Our new `runme.inc`:
+Our new [`runme.inc`](runme.inc):
 
 ```
 ADBD_SRC=/mnt/sda1/custom_upgrade/adbd.hacked

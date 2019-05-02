@@ -1,0 +1,9 @@
+#!/system/bin/sh
+
+f="/data/local/tmp/bootanimation.test.zip"
+if [ -r $f ]; then
+	mv $f $f.tried
+	mount -o bind $f.tried /atv/bootvideo/bootanimation.zip
+fi
+
+exec /system/bin/bootanimation.orig "$@"
