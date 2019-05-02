@@ -206,7 +206,7 @@ But now I know how to construct my own `bootanimation.zip`, so...
 
 ### Third attempt (the almost-fatal one)
 
-So I bought (yes, for real money, all the $2.50 of it) a nice 1280x1080 animation from [videobacks](https://www.videobacks.com), and extracted the frames from it (`ffmpeg -i whatever.mov -q 2 "part0/%03.jpg"`), all 399 of them.
+So I bought (yes, for real money, all the $2.50 of it) a nice 1920x1080 animation from [videobacks](https://www.videobacks.com), and extracted the frames from it (`ffmpeg -i whatever.mov -q 2 "part0/%03.jpg"`), all 399 of them.
 
 Built the .zip, updated it, rebooted, and...
 
